@@ -599,6 +599,11 @@ window.auth = firebase.auth();
 window.db = firebase.firestore();
 window.storage = firebase.storage();
 
+// Ensure auth persistence so sessions survive reloads (helps avoid brief null state)
+try {
+  window.auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(()=>{});
+} catch (e) { /* ignore if not supported */ }
+
 // Cloud Function URL for anonymous messages (set your real URL here)
 const CLOUD_FN_ANON_URL = '' /* e.g. 'https://us-central1-your-project.cloudfunctions.net/anonMessage' */;
 
@@ -1910,6 +1915,19 @@ window.addEventListener('load', () => {
         afterAuth(user);
       });
     } else {
+      // If there's a saved token or profile locally, keep UI visible for now to avoid flicker
+      const hasToken = !!localStorage.getItem('firebase_token');
+      const hasSaved = !!localStorage.getItem('hate_user');
+      if (hasToken || hasSaved) {
+        // keep app visible and load local user for UI continuity
+        document.getElementById('auth').classList.add('off');
+        document.getElementById('app').style.display = 'flex';
+        if (hasSaved && !me) {
+          try { me = JSON.parse(localStorage.getItem('hate_user')); fillProf(); } catch(e){}
+        }
+        return;
+      }
+
       // Delay hiding UI slightly to avoid flicker on mobile when auth state briefly toggles
       _authHideTimer = setTimeout(() => {
         document.getElementById('auth').classList.remove('off');
