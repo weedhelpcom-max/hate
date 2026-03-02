@@ -1893,17 +1893,16 @@ window.addEventListener('load', () => {
     setTimeout(() => window.dispatchEvent(new Event('load')), 500);
     return;
   }
-  
+  let _authHideTimer = null;
   window.auth.onAuthStateChanged((user) => {
+    if (_authHideTimer) { clearTimeout(_authHideTimer); _authHideTimer = null; }
+
     if (user) {
       // Load user data from Firestore
       window.db.collection('users').doc(user.uid).get().then((docSnap) => {
         if (docSnap.exists) {
           const userData = docSnap.data();
-          afterAuth({
-            ...user,
-            ...userData
-          });
+          afterAuth({ ...user, ...userData });
         } else {
           afterAuth(user);
         }
@@ -1911,17 +1910,17 @@ window.addEventListener('load', () => {
         afterAuth(user);
       });
     } else {
-      // Show auth screen
-      document.getElementById('auth').classList.remove('off');
-      document.getElementById('app').style.display = 'none';
-      
-      // Check for saved user
-      const savedUser = localStorage.getItem('hate_user');
-      if (savedUser) {
-        try {
-          me = JSON.parse(savedUser);
-        } catch (e) {}
-      }
+      // Delay hiding UI slightly to avoid flicker on mobile when auth state briefly toggles
+      _authHideTimer = setTimeout(() => {
+        document.getElementById('auth').classList.remove('off');
+        document.getElementById('app').style.display = 'none';
+
+        // Load saved local profile for convenience (UI only)
+        const savedUser = localStorage.getItem('hate_user');
+        if (savedUser) {
+          try { me = JSON.parse(savedUser); } catch (e) {}
+        }
+      }, 700);
     }
   });
 });
