@@ -241,8 +241,12 @@ html,body{height:100%;background:var(--bg);color:var(--t1);font-family:'DM Sans'
 
 /* ── MOBILE ── */
 @media (max-width: 768px) {
-  #sidebar{width:100%;min-width:100%;border-right:none}#main{display:none}#rpanel{display:none}
-  #app.msgview #sidebar{display:none}#app.msgview #main{display:flex}
+  /* On mobile show main by default (list + empty view). When a chat is opened we add .msgview to hide sidebar */
+  #sidebar{width:100%;min-width:100%;border-right:none}
+  #main{display:flex}
+  #rpanel{display:none}
+  #app.msgview #sidebar{display:none}
+  #app.msgview #main{display:flex}
   #app.msgview #rpanel{display:flex}
   #msgs{padding:12px 5%}#topbar{height:56px;padding:0 12px}
   .mwrap{max-width:85%}#inpwrap{padding:7px 12px 10px}.inpb{width:32px;height:32px}
@@ -304,7 +308,8 @@ html,body{height:100%;background:var(--bg);color:var(--t1);font-family:'DM Sans'
     </div>
     <div id="sbsearch">
       <svg class="sico" width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M15.5 14h-.79l-.28-.27A6.47 6.47 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
-      <input id="sinp" placeholder="Поиск" oninput="renderCL()"/>
+      <input id="sinp" placeholder="Поиск" oninput="onSearchInput()" onfocus="onSearchInput()" autocomplete="off"/>
+      <div id="sinp-suggestions" style="display:none;position:absolute;left:12px;right:12px;top:44px;background:var(--s2);border:1px solid var(--bd2);border-radius:8px;padding:6px;box-shadow:0 8px 24px rgba(0,0,0,.5);z-index:400;max-height:260px;overflow:auto"></div>
     </div>
     <div id="chatlist"></div>
     <div id="sbfoot">
@@ -475,7 +480,7 @@ html,body{height:100%;background:var(--bg);color:var(--t1);font-family:'DM Sans'
       <div style="font-size:11.5px;color:var(--t4)">Нажмите для смены фото</div>
     </div>
     <div class="pssec"><div class="psslbl">Имя</div><input class="psinp" id="pname" type="text" placeholder="Ваше имя"/></div>
-    <div class="pssec"><div class="psslbl">Юзернейм</div><input class="psinp" id="pusr" type="text" placeholder="@username"/></div>
+    <div class="pssec"><div class="psslbl">Юзернейм</div><input class="psinp" id="pusr" type="text" placeholder="@username" oninput="onUsernameInput()"/><div id="pusr-msg" class="aerr" style="display:none;margin-top:8px;font-size:12px"></div></div>
     <div class="pssec"><div class="psslbl">О себе</div><input class="psinp" id="pbio" type="text" placeholder="Расскажите о себе..."/></div>
     <div class="pssec">
       <div class="psslbl">Email</div>
@@ -865,7 +870,13 @@ function renderCL() {
   const el = document.getElementById('chatlist');
   el.innerHTML = '';
   
-  users.filter(u => !q || u.name.toLowerCase().includes(q) || (u.username && u.username.toLowerCase().includes(q))).forEach((u, i) => {
+  users.filter(u => {
+    if (!q) return true;
+    const nameMatch = u.name && u.name.toLowerCase().includes(q);
+    const usernameMatch = u.username && u.username.toLowerCase().includes(q);
+    const emailMatch = u.email && u.email.toLowerCase().includes(q);
+    return nameMatch || usernameMatch || emailMatch;
+  }).forEach((u, i) => {
     const chat = chats[u.id] || { messages: [], unread: 0 };
     const last = chat.messages[chat.messages.length - 1];
     
@@ -891,6 +902,110 @@ function renderCL() {
     
     el.appendChild(d);
   });
+}
+
+// ── SEARCH SUGGESTIONS ──
+function onSearchInput() {
+  renderCL();
+  renderSuggestions();
+}
+
+function renderSuggestions() {
+  const q = (document.getElementById('sinp')?.value || '').toLowerCase().trim();
+  const box = document.getElementById('sinp-suggestions');
+  if (!box) return;
+  if (!q) { box.style.display = 'none'; box.innerHTML = ''; return; }
+
+  // Filter loaded users (we already listen to users via setupChatsListener)
+  const matches = users.filter(u => {
+    if (!u) return false;
+    const name = (u.name || '').toLowerCase();
+    const uname = (u.username || '').toLowerCase();
+    const email = (u.email || '').toLowerCase();
+    return name.includes(q) || uname.includes(q) || email.includes(q);
+  }).slice(0, 8);
+
+  if (!matches.length) { box.style.display = 'none'; box.innerHTML = ''; return; }
+
+  box.innerHTML = matches.map(u => {
+    const label = u.username ? ('@' + u.username) : (u.name || u.email || 'User');
+    const sub = u.email ? (' · ' + u.email) : '';
+    const initials = (u.name || '').split(' ').map(s=>s[0]).join('').slice(0,2).toUpperCase() || (u.username||'').slice(0,2).toUpperCase();
+    return `<div class="sugg-item" data-uid="${u.id}" style="display:flex;align-items:center;gap:8px;padding:8px 6px;border-radius:6px;cursor:pointer">
+      <div style="width:36px;height:36px;border-radius:50%;background:${u.color||CLR[0]};display:flex;align-items:center;justify-content:center;font-weight:700;color:#111">${initials}</div>
+      <div style="flex:1;min-width:0">
+        <div style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(u.name || label)}</div>
+        <div style="font-size:12px;color:var(--t3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc((u.username?('@'+u.username):'') + sub)}</div>
+      </div>
+    </div>`;
+  }).join('');
+
+  // attach handlers (use mousedown so clicks are registered before blur)
+  box.querySelectorAll('.sugg-item').forEach(el => {
+    el.addEventListener('mousedown', (ev) => {
+      ev.preventDefault();
+      const uid = el.getAttribute('data-uid');
+      if (uid) pickSuggestion(uid);
+    });
+  });
+
+  box.style.display = 'block';
+}
+
+function pickSuggestion(uid) {
+  document.getElementById('sinp').value = '';
+  document.getElementById('sinp-suggestions').style.display = 'none';
+  openChat(uid);
+}
+
+function hideSuggestions() {
+  const b = document.getElementById('sinp-suggestions');
+  if (b) { b.style.display = 'none'; b.innerHTML = ''; }
+}
+
+// Hide suggestions when clicking outside
+document.addEventListener('click', (e) => {
+  const box = document.getElementById('sinp-suggestions');
+  const input = document.getElementById('sinp');
+  if (!box || !input) return;
+  if (e.target === input || input.contains(e.target) || box.contains(e.target)) return;
+  hideSuggestions();
+});
+
+// ── USERNAME CHECKS ──
+let _usrCheckTimer = null;
+function onUsernameInput() {
+  const msg = document.getElementById('pusr-msg'); if (msg) { msg.style.display='none'; }
+  clearTimeout(_usrCheckTimer);
+  _usrCheckTimer = setTimeout(async () => {
+    const v = (gv('pusr')||'').trim();
+    if (!v) return;
+    const ok = await checkUsernameAvailable(v);
+    const msg = document.getElementById('pusr-msg');
+    if (!msg) return;
+    if (ok) {
+      msg.style.display = 'block'; msg.style.color = 'var(--t2)'; msg.textContent = 'Ник доступен';
+    } else {
+      msg.style.display = 'block'; msg.style.color = 'var(--red)'; msg.textContent = 'Ник уже занят';
+    }
+  }, 550);
+}
+
+async function checkUsernameAvailable(username) {
+  if (!username) return false;
+  try {
+    const q = await db.collection('users').where('username', '==', username).get();
+    if (q.empty) return true;
+    // If found only the current user, consider available
+    if (q.size === 1) {
+      const doc = q.docs[0];
+      if (doc.id === auth.currentUser.uid) return true;
+    }
+    return false;
+  } catch (e) {
+    console.error('[DEBUG] Username check failed', e);
+    return false;
+  }
 }
 
 // ── OPEN CHAT ──
@@ -1361,12 +1476,26 @@ function fillProf() {
   sv('pemail', me.email || '');
 }
 
-function saveProf() {
+async function saveProf() {
   if (!me || !auth.currentUser) return;
   
   me.name = gv('pname') || me.name;
-  me.username = gv('pusr') || me.username;
+  const newUsername = (gv('pusr') || '').trim();
   me.bio = gv('pbio');
+
+  // If username changed, ensure availability
+  if (newUsername && newUsername !== (me.username || '')) {
+    const ok = await checkUsernameAvailable(newUsername);
+    if (!ok) {
+      const msg = document.getElementById('pusr-msg');
+      if (msg) { msg.style.display = 'block'; msg.textContent = 'Этот ник уже занят'; }
+      showNotif('Никнейм уже занят');
+      return;
+    }
+    me.username = newUsername;
+  } else {
+    me.username = me.username || newUsername;
+  }
   
   localStorage.setItem('hate_user', JSON.stringify(me));
   
