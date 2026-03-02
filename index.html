@@ -113,6 +113,22 @@ html,body{height:100%;background:var(--bg);color:var(--t1);font-family:'DM Sans'
 .ib{width:34px;height:34px;border-radius:9px;background:none;border:none;cursor:pointer;color:var(--t3);display:flex;align-items:center;justify-content:center;transition:.15s}
 .ib:hover{background:var(--s2);color:var(--t2)}
 
+/* ── MESSAGE BUBBLES ── */
+.mrow{display:flex;padding:8px 12px}
+.mrow.out{justify-content:flex-end}
+.mrow.in{justify-content:flex-start}
+.mwrap{display:flex;flex-direction:column;align-items:flex-start;max-width:85%}
+.mrow.out .mwrap{align-items:flex-end}
+.bub{display:inline-block;padding:10px 14px;border-radius:18px;line-height:1.35;word-break:break-word;white-space:pre-wrap;box-shadow:0 6px 18px rgba(0,0,0,0.25)}
+.mrow.in .bub{background:#2f2f2f;color:var(--t1);border-bottom-left-radius:6px;border-bottom-right-radius:18px}
+.mrow.out .bub{background:var(--t1);color:#111;border-bottom-right-radius:6px;border-bottom-left-radius:18px}
+.bub img{border-radius:12px}
+.mmeta{display:flex;gap:8px;align-items:center;margin-top:6px;font-size:11px;color:var(--t3)}
+
+/* Adaptive bubble width: shrink for short messages, allow expansion for long */
+.bub{min-width:48px;max-width:78vw}
+
+
 /* ── RIGHT PANEL ── */
 .rphdr{height:58px;display:flex;align-items:center;padding:0 14px;gap:11px;border-bottom:1px solid var(--bd);flex-shrink:0}
 .rptit{font-size:15px;font-weight:700}
@@ -215,6 +231,13 @@ html,body{height:100%;background:var(--bg);color:var(--t1);font-family:'DM Sans'
 @keyframes mpop{from{opacity:0;transform:scale(.93)}to{opacity:1;transform:none}}
 @keyframes tdot{0%,80%,100%{transform:scale(.65);opacity:.45}40%{transform:scale(1);opacity:1}}
 
+/* Message enter animation */
+@keyframes bubPop {
+  from { opacity: 0; transform: translateY(10px) scale(.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+.bub.enter { animation: bubPop .24s cubic-bezier(.2,.9,.3,1) both; }
+
 /* ── MOBILE ── */
 @media (max-width: 768px) {
   /* On mobile show main by default (list + empty view). When a chat is opened we add .msgview to hide sidebar */
@@ -228,6 +251,22 @@ html,body{height:100%;background:var(--bg);color:var(--t1);font-family:'DM Sans'
   .mwrap{max-width:85%}#inpwrap{padding:7px 12px 10px}.inpb{width:32px;height:32px}
   .sndbtn{width:34px;height:34px}.cname{max-width:140px}.cprev{max-width:160px}
   .sfb{font-size:8.5px;padding:5px 2px}
+
+  /* Mobile message bubble adjustments */
+  .mrow{padding:6px 8px}
+  .mwrap{max-width:92%}
+  .bub{max-width:78%;padding:10px 12px;font-size:15px}
+  .mrow.out .bub{border-radius:16px 16px 6px 16px}
+  .mrow.in .bub{border-radius:16px 16px 16px 6px}
+
+  /* Input area tweaks */
+  #inprow{padding:6px;gap:6px}
+  #msginp{font-size:15px;min-height:36px}
+  .sndbtn{width:40px;height:40px;border-radius:12px}
+  #anonBtn{width:34px;height:34px}
+
+  /* Ensure msgs scroll area fits above sticky input */
+  #msgs{padding-bottom:80px}
 }
 
 @media (max-width: 480px) {
@@ -1225,7 +1264,14 @@ function mkBub(msg) {
         </div>
       </div>
     </div>`;
-  
+
+  // Add enter animation for local/just-sent messages
+  const bubble = row.querySelector('.bub');
+  if (bubble && (String(msg.id || '').startsWith('local-') || msg._local)) {
+    bubble.classList.add('enter');
+    setTimeout(() => { try { bubble.classList.remove('enter'); } catch(e){} }, 420);
+  }
+
   return row;
 }
 
@@ -1281,13 +1327,28 @@ async function sendMsg() {
       from_name: reply.from === me?.id ? 'Вы' : gu(reply.from).name
     };
   }
-  
-  await db.collection('messages').add(msg);
-  
+
+  // Optimistic local render to show message immediately with animation
+  try {
+    const localMsg = Object.assign({}, msg);
+    localMsg.id = 'local-' + Date.now();
+    localMsg._local = true;
+    localMsg.timestamp = { seconds: Math.floor(Date.now() / 1000) };
+    if (!chats[activeChat]) chats[activeChat] = { messages: [], unread: 0 };
+    chats[activeChat].messages.push(localMsg);
+    renderMsgs();
+  } catch (e) { console.warn('Local render failed', e); }
+
+  try {
+    await db.collection('messages').add(msg);
+  } catch (e) {
+    console.error('Failed to send message', e);
+    showNotif('Ошибка отправки сообщения');
+  }
+
   inp.value = '';
   autoRz(inp);
   clrReply();
-  // keep focus in input so user can continue typing
   try { inp.focus(); } catch (e) {}
 }
 
