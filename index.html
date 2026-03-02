@@ -97,6 +97,7 @@ html,body{height:100%;background:var(--bg);color:var(--t1);font-family:'DM Sans'
 #inprow{display:flex;align-items:flex-end;gap:8px;background:var(--s1);border:1px solid var(--bd2);border-radius:15px;padding:5px 5px 5px 11px;transition:border-color .2s}
 #inprow:focus-within{border-color:var(--s4)}
 #msginp{flex:1;background:none;border:none;color:var(--t1);font-size:14.5px;font-family:inherit;outline:none;resize:none;max-height:120px;line-height:1.5;padding:4px 0}
+#msginp{flex:1;background:none;border:none;color:var(--t1);font-size:14.5px;font-family:inherit;outline:none;resize:none;max-height:120px;line-height:1.5;padding:4px 0;min-height:28px}
 #msginp::placeholder{color:var(--t4)}
 .inpb{width:34px;height:34px;border-radius:9px;background:none;border:none;cursor:pointer;color:var(--t3);display:flex;align-items:center;justify-content:center;transition:.15s;flex-shrink:0}
 .inpb:hover{background:var(--s3);color:var(--t2)}
@@ -1286,6 +1287,8 @@ async function sendMsg() {
   inp.value = '';
   autoRz(inp);
   clrReply();
+  // keep focus in input so user can continue typing
+  try { inp.focus(); } catch (e) {}
 }
 
 // ── REPLY/EDIT ──
@@ -1791,8 +1794,10 @@ function formatTime(timestamp) {
 }
 
 function autoRz(ta) {
+  if (!ta) return;
   ta.style.height = 'auto';
-  ta.style.height = Math.min(ta.scrollHeight, 120) + 'px';
+  const h = Math.min(ta.scrollHeight || 0, 120);
+  ta.style.height = Math.max(h, 28) + 'px';
 }
 
 function loadUsers() {
