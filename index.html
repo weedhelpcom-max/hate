@@ -777,6 +777,8 @@ async function register() {
 }
 
 function logout() {
+  // Stop presence and sign out
+  stopPresenceHeartbeat();
   auth.signOut().then(() => {
     localStorage.removeItem('hate_user');
     location.reload();
@@ -805,7 +807,46 @@ function afterAuth(user) {
     sbOpen = false;
     document.getElementById('sidebar').classList.add('off');
   }
+
+  // Presence: mark online and start heartbeat
+  startPresenceHeartbeat();
 }
+
+// Presence helpers
+let _presenceInterval = null;
+function startPresenceHeartbeat() {
+  try {
+    setOnline(true);
+    if (_presenceInterval) clearInterval(_presenceInterval);
+    _presenceInterval = setInterval(() => {
+      setOnline(true);
+    }, 30000);
+  } catch (e) { console.warn('Presence start failed', e); }
+}
+
+function stopPresenceHeartbeat() {
+  try {
+    if (_presenceInterval) clearInterval(_presenceInterval);
+    _presenceInterval = null;
+    setOnline(false);
+  } catch (e) { console.warn('Presence stop failed', e); }
+}
+
+async function setOnline(val) {
+  if (!auth || !auth.currentUser || !db) return;
+  const uid = auth.currentUser.uid;
+  try {
+    await db.collection('users').doc(uid).set({ online: !!val, lastSeen: new Date() }, { merge: true });
+  } catch (e) {
+    console.warn('setOnline failed', e);
+  }
+}
+
+// Update presence on visibility / unload
+window.addEventListener('beforeunload', () => { try { setOnline(false); } catch(e){} });
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') setOnline(true); else setOnline(false);
+});
 
 // ── FIREBASE LISTENERS ──
 function setupChatsListener() {
@@ -818,11 +859,18 @@ function setupChatsListener() {
   unsubscribeChats = usersQuery.onSnapshot((snapshot) => {
     users = [];
     snapshot.forEach((doc) => {
-      users.push({
-        id: doc.id,
-        ...doc.data()
-      });
+      users.push({ id: doc.id, ...doc.data() });
     });
+
+    // Reflect typing/online state into chats structure for UI
+    users.forEach(u => {
+      if (!chats[u.id]) chats[u.id] = { messages: [], unread: 0 };
+      // typing if this user is typing TO me
+      chats[u.id].typing = !!(u.typingTo && me && u.typingTo === me.id);
+      // ensure online flag exists
+      chats[u.id].online = !!u.online;
+    });
+
     renderCL();
     if (activeChat) updTB();
   }, (err) => {
@@ -845,24 +893,28 @@ function setupMessagesListener(chatId) {
   
   const userId = window.auth.currentUser.uid;
   const chatRoom = [userId, chatId].sort().join('_');
-  
-  const messagesQuery = window.db.collection('messages')
-    .where('room', '==', chatRoom)
-    .orderBy('timestamp', 'asc');
-  
+  // Avoid requiring a composite index: listen without orderBy and sort client-side
+  const messagesQuery = window.db.collection('messages').where('room', '==', chatRoom);
+
   unsubscribeMessages = messagesQuery.onSnapshot((snapshot) => {
     if (!chats[chatId]) {
       chats[chatId] = { messages: [], unread: 0 };
     }
-    
-    chats[chatId].messages = [];
+
+    const arr = [];
     snapshot.forEach((doc) => {
-      chats[chatId].messages.push({
-        id: doc.id,
-        ...doc.data()
-      });
+      arr.push({ id: doc.id, ...doc.data() });
     });
-    
+
+    // Sort by timestamp serverTimestamp where possible
+    arr.sort((a, b) => {
+      const ta = a.timestamp && a.timestamp.seconds ? a.timestamp.seconds : 0;
+      const tb = b.timestamp && b.timestamp.seconds ? b.timestamp.seconds : 0;
+      return ta - tb;
+    });
+
+    chats[chatId].messages = arr;
+
     if (activeChat === chatId) {
       renderMsgs();
     }
@@ -871,6 +923,8 @@ function setupMessagesListener(chatId) {
     console.error('[DEBUG] Messages listener failed', err);
     if (err && err.code === 'permission-denied') {
       showNotif('Ошибка: доступ к сообщениям запрещён (Firestore rules).');
+    } else if (err && err.code === 'failed-precondition' || err && err.message && err.message.includes('requires an index')) {
+      showNotif('Ошибка: запрос к сообщениям требует индекса в Firestore. Создайте индекс в консоли Firebase.');
     } else {
       showNotif('Ошибка загрузки сообщений.');
     }
@@ -1035,6 +1089,8 @@ async function checkUsernameAvailable(username) {
     if (!auth.currentUser) { showNotif('Неавторизован'); return; }
     const uid = auth.currentUser.uid;
     try {
+      // Stop presence first
+      stopPresenceHeartbeat();
       try { await db.collection('users').doc(uid).delete(); } catch (e) { console.warn('User doc delete failed', e); }
       await auth.currentUser.delete();
       localStorage.removeItem('hate_user');
@@ -1341,17 +1397,32 @@ function onTyp() {
   if (typingThrottle[activeChat]) return;
   
   typingThrottle[activeChat] = true;
-  
-  // Update typing status in Firestore (would need a separate collection)
-  // For now, just simulate locally
+  // Update typing status in Firestore (so other users can see it)
   if (!chats[activeChat]) chats[activeChat] = { messages: [], unread: 0 };
   chats[activeChat].typing = true;
-  
-  setTimeout(() => {
+
+  const uid = auth.currentUser.uid;
+  try {
+    // Write typing target for this user (merge to avoid overwriting)
+    db.collection('users').doc(uid).set({ typingTo: activeChat, typingAt: new Date() }, { merge: true }).catch(err => {
+      console.warn('Typing write failed', err);
+      if (err && err.code === 'permission-denied') showNotif('Ошибка: отправка статуса печати запрещена правилами Firestore');
+    });
+  } catch (e) {
+    console.warn('Typing set error', e);
+  }
+
+  // Reset typing indicator after timeout and clear Firestore flag
+  clearTimeout(typingTimeouts[activeChat]);
+  typingTimeouts[activeChat] = setTimeout(() => {
     typingThrottle[activeChat] = false;
     if (chats[activeChat]) chats[activeChat].typing = false;
+    // Clear typingTo in Firestore if still set
+    try {
+      db.collection('users').doc(uid).set({ typingTo: null }, { merge: true }).catch(()=>{});
+    } catch(e){}
     if (activeChat) renderMsgs();
-  }, 2000);
+  }, 1800);
 }
 
 // ── FILE UPLOAD HANDLERS ──
@@ -1577,12 +1648,18 @@ async function saveProf() {
   
   localStorage.setItem('hate_user', JSON.stringify(me));
   
-  // Update in Firestore
-  db.collection('users').doc(auth.currentUser.uid).update({
-    name: me.name,
-    username: me.username,
-    bio: me.bio
-  });
+  // Update in Firestore (use set with merge to avoid "No document to update" errors)
+  try {
+    await db.collection('users').doc(auth.currentUser.uid).set({
+      name: me.name,
+      username: me.username,
+      bio: me.bio,
+      lastUpdate: new Date()
+    }, { merge: true });
+  } catch (e) {
+    console.error('Failed to save profile', e);
+    showNotif('Ошибка сохранения профиля');
+  }
   
   fillProf();
   showNotif('✓ Профиль сохранён');
