@@ -853,9 +853,10 @@ function afterAuth(user) {
   fillProf();
   
   // Mobile: hide sidebar on small screens
+  // Mobile: keep sidebar visible on initial load; when a chat is opened we add .msgview which will hide the sidebar
   if (window.innerWidth <= 768) {
-    sbOpen = false;
-    document.getElementById('sidebar').classList.add('off');
+    sbOpen = true;
+    document.getElementById('sidebar').classList.remove('off');
   }
 
   // Presence: mark online and start heartbeat
@@ -1915,6 +1916,19 @@ window.addEventListener('load', () => {
         afterAuth(user);
       });
       } else {
+        // If there's a saved token or profile locally, keep UI visible for now to avoid flicker
+        const hasToken = !!localStorage.getItem('firebase_token');
+        const hasSaved = !!localStorage.getItem('hate_user');
+        if (hasToken || hasSaved) {
+          // keep app visible and load local user for UI continuity
+          document.getElementById('auth').classList.add('off');
+          document.getElementById('app').style.display = 'flex';
+          if (hasSaved && !me) {
+            try { me = JSON.parse(localStorage.getItem('hate_user')); fillProf(); } catch(e){}
+          }
+          return;
+        }
+
         // Delay hiding UI slightly to avoid flicker on mobile when auth state briefly toggles
         _authHideTimer = setTimeout(() => {
           document.getElementById('auth').classList.remove('off');
