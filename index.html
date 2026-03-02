@@ -16,6 +16,7 @@
   --acc:#e8e8e8; --red:#ff5252;
   --on:#d0d0d0;
 }
+
 html,body{height:100%;background:var(--bg);color:var(--t1);font-family:'DM Sans',system-ui,sans-serif;overflow:hidden;font-size:14px}
 ::-webkit-scrollbar{width:3px}::-webkit-scrollbar-thumb{background:var(--s4);border-radius:3px}
 
@@ -59,33 +60,7 @@ html,body{height:100%;background:var(--bg);color:var(--t1);font-family:'DM Sans'
 .sfb:hover{background:var(--s2);color:var(--t2)}
 .sfb.act{color:var(--t1)}
 
-/* ── TOPBAR ── */
-#topbar{height:58px;display:flex;align-items:center;padding:0 18px;border-bottom:1px solid var(--bd);background:var(--bg);flex-shrink:0;gap:12px}
-.tbuser{display:flex;align-items:center;gap:11px;cursor:pointer;flex:1;min-width:0}
-.tbname{font-size:14.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.tbst{font-size:11.5px;color:var(--t3)}
-.tbst.on{color:var(--t2)}
-.tbacts{display:flex;gap:3px;flex-shrink:0}
 
-/* ── MESSAGES ── */
-#msgs{flex:1;overflow-y:auto;padding:18px 8%;display:flex;flex-direction:column;gap:2px}
-.mrow{display:flex;animation:bIn .22s cubic-bezier(.34,1.56,.64,1) both}
-.mrow.out{justify-content:flex-end}
-.mrow.in{justify-content:flex-start}
-.mwrap{position:relative;max-width:66%}
-.bub{padding:9px 13px;border-radius:18px;font-size:14.5px;line-height:1.55;word-break:break-word;position:relative;white-space:pre-wrap;cursor:default;transition:filter .12s}
-.bub:hover{filter:brightness(1.1)}
-.bub.out{background:var(--out);border-radius:18px 18px 4px 18px;border:1px solid var(--bd2)}
-.bub.in{background:var(--in);border-radius:18px 18px 18px 4px;border:1px solid var(--bd)}
-.mmeta{display:flex;align-items:center;justify-content:flex-end;gap:4px;margin-top:4px}
-.mtime{font-size:10px;color:var(--t4)}
-.mtick{font-size:10.5px;color:var(--t4)}
-.mtick.rd{color:var(--t2)}
-.medit{font-size:10px;color:var(--t4)}
-.menc{font-size:9px;color:var(--t3)}
-.brp{border-left:2px solid var(--t3);padding:3px 8px;margin-bottom:6px;border-radius:4px;background:rgba(255,255,255,.03)}
-.bra{font-size:11px;color:var(--t2);font-weight:600}
-.brt{font-size:11.5px;color:var(--t3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .fwd{font-size:10.5px;color:var(--t3);margin-bottom:4px}
 .rcs{display:flex;flex-wrap:wrap;gap:3px;margin-top:5px}
 .rc{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.09);border-radius:12px;padding:2px 7px;font-size:13px;cursor:pointer;transition:.12s;user-select:none}
@@ -380,6 +355,7 @@ html,body{height:100%;background:var(--bg);color:var(--t1);font-family:'DM Sans'
               <div class="api" onclick="fkVoice()">🎤 Голосовое</div>
               <div class="api" onclick="showNotif('📍 Геолокация — скоро');clsAt()">📍 Геолокация</div>
             </div>
+          <button id="anonBtn" class="inpb" title="Анонимно" onclick="toggleAnon()">🕶️</button>
           </div>
           <textarea id="msginp" placeholder="Сообщение..." rows="1"
             oninput="autoRz(this);onTyp()"
@@ -523,7 +499,7 @@ html,body{height:100%;background:var(--bg);color:var(--t1);font-family:'DM Sans'
       <div class="psslbl">Безопасность</div>
       <div class="psr" style="cursor:default"><span class="psri">🔑</span><span class="psrl">Двухфакторная аутентификация</span><label class="tgl"><input type="checkbox"/><div class="tgltr"><div class="tglth"></div></div></label></div>
       <div class="psr" onclick="showNotif('Все сессии завершены')"><span class="psri">📵</span><span class="psrl">Завершить все сессии</span><span class="psrr">›</span></div>
-      <div class="psr red" onclick="showNotif('Аккаунт удалён (демо)')"><span class="psri">💀</span><span class="psrl">Удалить аккаунт</span></div>
+      <div class="psr red" onclick="confirmDeleteAccount()"><span class="psri">💀</span><span class="psrl">Удалить аккаунт</span></div>
     </div>
   </div>
 </div>
@@ -577,6 +553,9 @@ firebase.initializeApp(firebaseConfig);
 window.auth = firebase.auth();
 window.db = firebase.firestore();
 window.storage = firebase.storage();
+
+// Cloud Function URL for anonymous messages (set your real URL here)
+const CLOUD_FN_ANON_URL = '' /* e.g. 'https://us-central1-your-project.cloudfunctions.net/anonMessage' */;
 
 try {
   firebase.analytics();
@@ -732,46 +711,66 @@ async function register() {
     // Create user in Firebase
     const userCredential = await window.auth.createUserWithEmailAndPassword(email, password);
     const uid = userCredential.user.uid;
-    
+
     // Update profile with name
-    await userCredential.user.updateProfile({
-      displayName: name
-    });
-    
+    await userCredential.user.updateProfile({ displayName: name });
+
     // Get ID token for backend verification
     const idToken = await userCredential.user.getIdToken();
     localStorage.setItem('firebase_token', idToken);
-    
+
     // Create user document in Firestore with security
     console.log('[DEBUG] Creating Firestore document...');
-    await window.db.collection('users').doc(uid).set({
-      uid: uid,
-      name: name,
-      email: email,
-      color: CLR[Math.floor(Math.random() * CLR.length)],
-      createdAt: new Date(),
-      lastLogin: new Date(),
-      verified: false,
-      online: true
-    });
-    
+    try {
+      await window.db.collection('users').doc(uid).set({
+        uid: uid,
+        name: name,
+        email: email,
+        color: CLR[Math.floor(Math.random() * CLR.length)],
+        createdAt: new Date(),
+        lastLogin: new Date(),
+        verified: false,
+        online: true
+      });
+    } catch (fsErr) {
+      console.error('[DEBUG] Firestore write failed after creating auth user', fsErr);
+      // Cleanup: delete created auth user to avoid orphaned auth accounts
+      try { await userCredential.user.delete(); } catch (delErr) { console.warn('Failed to delete orphan auth user', delErr); }
+      shErr('Ошибка регистрации: не удалось сохранить профиль. Попробуйте позже.');
+      return;
+    }
+
     shErr('');
     console.log('[DEBUG] Registration successful!');
     showNotif('✅ Аккаунт создан успешно!');
-    
+
   } catch (error) {
     let errorMsg = 'Ошибка регистрации';
-    
-    if (error.message.includes('email-already-in-use')) {
-      errorMsg = 'Этот email уже зарегистрирован';
-    } else if (error.message.includes('weak-password')) {
+
+    const code = error.code || '';
+    const msg = error.message || '';
+
+    if (code.includes('email-already-in-use') || msg.includes('email-already-in-use')) {
+      // Email exists in Auth. Check if there's a user document with this email to detect mismatch.
+      try {
+        const q = await window.db.collection('users').where('email', '==', email).get();
+        if (!q.empty) {
+          errorMsg = 'Email уже зарегистрирован (профиль найден). Попробуйте войти.';
+        } else {
+          errorMsg = 'Email уже используется в системе аутентификации, но профиль не найден. Попробуйте восстановить пароль или войти.';
+        }
+      } catch (e2) {
+        console.warn('[DEBUG] Checking users by email failed', e2);
+        errorMsg = 'Email уже зарегистрирован. Попробуйте восстановить пароль.';
+      }
+    } else if (code.includes('weak-password') || msg.includes('weak-password')) {
       errorMsg = 'Пароль слишком простой';
-    } else if (error.message.includes('invalid-email')) {
+    } else if (code.includes('invalid-email') || msg.includes('invalid-email')) {
       errorMsg = 'Некорректный email адрес';
     } else {
-      errorMsg = error.message || errorMsg;
+      errorMsg = msg || errorMsg;
     }
-    
+
     console.error('[DEBUG] Registration error:', error);
     shErr(errorMsg);
   }
@@ -826,6 +825,13 @@ function setupChatsListener() {
     });
     renderCL();
     if (activeChat) updTB();
+  }, (err) => {
+    console.error('[DEBUG] Users listener failed', err);
+    if (err && err.code === 'permission-denied') {
+      showNotif('Ошибка: доступ к списку пользователей запрещён (Firestore rules).');
+    } else {
+      showNotif('Ошибка загрузки пользователей.');
+    }
   });
   
   // Listen to messages for all chats
@@ -861,6 +867,13 @@ function setupMessagesListener(chatId) {
       renderMsgs();
     }
     renderCL();
+  }, (err) => {
+    console.error('[DEBUG] Messages listener failed', err);
+    if (err && err.code === 'permission-denied') {
+      showNotif('Ошибка: доступ к сообщениям запрещён (Firestore rules).');
+    } else {
+      showNotif('Ошибка загрузки сообщений.');
+    }
   });
 }
 
@@ -1004,9 +1017,38 @@ async function checkUsernameAvailable(username) {
     return false;
   } catch (e) {
     console.error('[DEBUG] Username check failed', e);
+    if (e && e.code === 'permission-denied') {
+      showNotif('Ошибка: проверка ника запрещена правилами Firestore (permission-denied)');
+    }
     return false;
   }
 }
+
+// ── ACCOUNT DELETION ──
+  function confirmDeleteAccount() {
+    if (!auth.currentUser) { showNotif('Неавторизован'); return; }
+    if (!confirm('Вы действительно хотите удалить аккаунт? Это действие необратимо.')) return;
+    deleteAccount();
+  }
+
+  async function deleteAccount() {
+    if (!auth.currentUser) { showNotif('Неавторизован'); return; }
+    const uid = auth.currentUser.uid;
+    try {
+      try { await db.collection('users').doc(uid).delete(); } catch (e) { console.warn('User doc delete failed', e); }
+      await auth.currentUser.delete();
+      localStorage.removeItem('hate_user');
+      showNotif('Аккаунт удалён');
+      setTimeout(() => location.reload(), 900);
+    } catch (e) {
+      console.error('Delete account failed', e);
+      if (e && e.code === 'auth/requires-recent-login') {
+        showNotif('Для удаления аккаунта требуется повторная авторизация. Войдите заново и попробуйте снова.');
+      } else {
+        showNotif('Ошибка удаления аккаунта: ' + (e.message || e.code || ''));
+      }
+    }
+  }
 
 // ── OPEN CHAT ──
 function openChat(uid) {
@@ -1114,6 +1156,7 @@ function mkBub(msg) {
         <button class="mab" onclick="opnCtx(event,'${msg.id}')">•••</button>
       </div>
       <div id="ep${msg.id}" class="epick" style="display:none"></div>
+      ${msg.anonymous ? `<div style="font-size:12px;color:var(--t3);margin-bottom:6px">${esc(msg.anonymousName||'Аноним')}</div>` : ''}
       ${rh}
       <div class="bub ${isMe ? 'out' : 'in'}" oncontextmenu="opnCtx(event,'${msg.id}');return false">
         ${fh}${fih}<span>${esc(msg.text || '')}</span>${rch}
@@ -1135,6 +1178,8 @@ async function sendMsg() {
   const text = inp.value.trim();
   
   if (!text || !activeChat || !auth.currentUser) return;
+
+  const anon = !!window.sendAnon;
   
   if (editObj) {
     // Edit message
@@ -1162,6 +1207,14 @@ async function sendMsg() {
     encrypted: enc.has(activeChat),
     read: false
   };
+
+  if (anon) {
+    // Obfuscated sender info for anonymous messages
+    msg.anonymous = true;
+    msg.anonymousName = genAnonName();
+    // Use a generic from value so UI can display anonName; do not store real UID here
+    msg.from = 'anonymous';
+  }
   
   if (reply) {
     msg.replyTo = {
@@ -1301,30 +1354,53 @@ function onTyp() {
   }, 2000);
 }
 
-// ── FILES ──
+// ── FILE UPLOAD HANDLERS ──
 function trigF(accept) {
-  document.getElementById('fileinp').accept = accept;
-  document.getElementById('fileinp').click();
+  const fi = document.getElementById('fileinp');
+  if (!fi) return;
+  fi.accept = accept || '*/*';
+  fi.click();
   clsAt();
 }
 
+// Anonymous send toggle and helper
+window.sendAnon = false;
+function toggleAnon() {
+  window.sendAnon = !window.sendAnon;
+  const b = document.getElementById('anonBtn');
+  if (b) {
+    b.style.background = window.sendAnon ? 'var(--s3)' : 'none';
+    b.style.color = window.sendAnon ? 'var(--t1)' : 'var(--t3)';
+  }
+  showNotif(window.sendAnon ? 'Анонимная отправка вкл' : 'Анонимная отправка выкл');
+}
+
+function genAnonName() {
+  const short = auth && auth.currentUser ? auth.currentUser.uid.slice(-4) : Math.random().toString(36).slice(2,6);
+  const base = me && me.name ? (me.name.split(' ')[0]) : 'Anon';
+  return `${base} · ${short}`;
+}
+
 async function handleFile() {
-  const file = document.getElementById('fileinp').files[0];
-  if (!file || !activeChat || !auth.currentUser) return;
-  
-  const isImage = file.type.startsWith('image/');
+  const fi = document.getElementById('fileinp');
+  if (!fi || !fi.files || !fi.files[0]) return;
+  const file = fi.files[0];
+  if (!activeChat || !auth.currentUser) { showNotif('Выберите чат для отправки'); fi.value = ''; return; }
+
   const userId = auth.currentUser.uid;
-  const chatRoom = [userId, activeChat].sort().join('_');
-  
+  const path = `uploads/${userId}/${Date.now()}_${file.name.replace(/\s+/g,'_')}`;
+  const ref = storage.ref().child(path);
+
   try {
-    const storageRef = storage.ref(`chats/${chatRoom}/${Date.now()}_${file.name}`);
-    await storageRef.put(file);
-    const url = await storageRef.getDownloadURL();
-    
+    const snap = await ref.put(file);
+    const url = await snap.ref.getDownloadURL();
+    const isImage = (file.type || '').startsWith('image/');
+
     const msg = {
       from: userId,
       to: activeChat,
-      room: chatRoom,
+      room: [userId, activeChat].sort().join('_'),
+      text: '',
       timestamp: firebase.firestore.FieldValue.serverTimestamp(),
       encrypted: enc.has(activeChat),
       read: false,
@@ -1336,12 +1412,14 @@ async function handleFile() {
         isImage: isImage
       }
     };
-    
+
     await db.collection('messages').add(msg);
     showNotif(isImage ? '📷 Фото отправлено' : '📎 Файл отправлен');
+    fi.value = '';
   } catch (error) {
     showNotif('Ошибка загрузки файла');
     console.error(error);
+    fi.value = '';
   }
 }
 
