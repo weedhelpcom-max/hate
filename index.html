@@ -852,10 +852,11 @@ function afterAuth(user) {
   applyTheme();
   fillProf();
   
-  // Mobile: hide sidebar on small screens
+  // Mobile: keep sidebar visible on initial load; when a chat is opened
+  // the app adds `msgview` which will hide the sidebar automatically.
   if (window.innerWidth <= 768) {
-    sbOpen = false;
-    document.getElementById('sidebar').classList.add('off');
+    sbOpen = true;
+    document.getElementById('sidebar').classList.remove('off');
   }
 
   // Presence: mark online and start heartbeat
