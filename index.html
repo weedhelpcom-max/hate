@@ -113,9 +113,6 @@ html,body{height:100%;background:var(--bg);color:var(--t1);font-family:'DM Sans'
 .ib{width:34px;height:34px;border-radius:9px;background:none;border:none;cursor:pointer;color:var(--t3);display:flex;align-items:center;justify-content:center;transition:.15s}
 .ib:hover{background:var(--s2);color:var(--t2)}
 
-/* Improve touch responsiveness for icon buttons on mobile */
-.ib{touch-action:manipulation;-webkit-tap-highlight-color:transparent}
-
 /* ── MESSAGE BUBBLES ── */
 .mrow{display:flex;padding:6px 0;margin-bottom:10px;width:100%}
 .mrow.out{justify-content:flex-end;padding-right:20px}
@@ -419,7 +416,7 @@ html,body{height:100%;background:var(--bg);color:var(--t1);font-family:'DM Sans'
   <!-- RIGHT PANEL -->
   <div id="rpanel" class="off">
     <div class="rphdr">
-      <button id="rpanel-close" class="ib"><svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg></button>
+      <button class="ib" onclick="tglInfo()"><svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg></button>
       <div class="rptit">Информация</div>
     </div>
     <div class="rpavwp">
@@ -638,7 +635,6 @@ let ctxObj = null;
 let typingTimeouts = {};
 let typingThrottle = {};
 let infoOpen = false;
-let _lastRpanelToggle = 0;
 let fwdMsg = null;
 let unsubscribeChats = null;
 let unsubscribeMessages = null;
@@ -856,11 +852,10 @@ function afterAuth(user) {
   applyTheme();
   fillProf();
   
-  // Mobile: keep sidebar visible on initial load; when a chat is opened
-  // the app adds `msgview` which will hide the sidebar automatically.
+  // Mobile: hide sidebar on small screens
   if (window.innerWidth <= 768) {
-    sbOpen = true;
-    document.getElementById('sidebar').classList.remove('off');
+    sbOpen = false;
+    document.getElementById('sidebar').classList.add('off');
   }
 
   // Presence: mark online and start heartbeat
@@ -1627,18 +1622,9 @@ function clsFwd() {
 
 // ── INFO PANEL ──
 function tglInfo() {
-  const now = Date.now();
-  if (now - (_lastRpanelToggle || 0) < 350) {
-    // ignore rapid double-invokes (touchend + click, etc.)
-    console.debug('tglInfo debounced', { since: now - (_lastRpanelToggle || 0) });
-    return;
-  }
-  _lastRpanelToggle = now;
-  const before = infoOpen;
   infoOpen = !infoOpen;
   document.getElementById('rpanel').classList.toggle('off', !infoOpen);
-  try { updInfo(); } catch (e) { console.warn('updInfo failed', e); }
-  console.debug('tglInfo toggled', { before, after: infoOpen, time: now });
+  updInfo();
 }
 
 function updInfo() {
@@ -1928,43 +1914,23 @@ window.addEventListener('load', () => {
       }).catch(() => {
         afterAuth(user);
       });
-    } else {
-      // If there's a saved token or profile locally, keep UI visible for now to avoid flicker
-      const hasToken = !!localStorage.getItem('firebase_token');
-      const hasSaved = !!localStorage.getItem('hate_user');
-      if (hasToken || hasSaved) {
-        // keep app visible and load local user for UI continuity
-        document.getElementById('auth').classList.add('off');
-        document.getElementById('app').style.display = 'flex';
-        if (hasSaved && !me) {
-          try { me = JSON.parse(localStorage.getItem('hate_user')); fillProf(); } catch(e){}
-        }
-        return;
+      } else {
+        // Delay hiding UI slightly to avoid flicker on mobile when auth state briefly toggles
+        _authHideTimer = setTimeout(() => {
+          document.getElementById('auth').classList.remove('off');
+          document.getElementById('app').style.display = 'none';
+
+          // Load saved local profile for convenience (UI only)
+          const savedUser = localStorage.getItem('hate_user');
+          if (savedUser) {
+            try { me = JSON.parse(savedUser); } catch (e) {}
+          }
+        }, 700);
       }
-
-      // Delay hiding UI slightly to avoid flicker on mobile when auth state briefly toggles
-      _authHideTimer = setTimeout(() => {
-        document.getElementById('auth').classList.remove('off');
-        document.getElementById('app').style.display = 'none';
-
-        // Load saved local profile for convenience (UI only)
-        const savedUser = localStorage.getItem('hate_user');
-        if (savedUser) {
-          try { me = JSON.parse(savedUser); } catch (e) {}
-        }
-      }, 700);
-    }
   });
 });
 
-// Ensure rpanel close button works reliably on touch devices
-setTimeout(() => {
-  const btn = document.getElementById('rpanel-close');
-  if (!btn) return;
-  const handler = (e) => { e.stopPropagation(); e.preventDefault && e.preventDefault(); try { tglInfo(); } catch (err) { console.warn('tglInfo missing', err); } };
-  btn.addEventListener('click', handler, { passive: false });
-  btn.addEventListener('touchend', handler, { passive: false });
-}, 200);
+// (no extra rpanel handlers)
 </script>
 </body>
 </html>
