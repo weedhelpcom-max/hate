@@ -113,6 +113,9 @@ html,body{height:100%;background:var(--bg);color:var(--t1);font-family:'DM Sans'
 .ib{width:34px;height:34px;border-radius:9px;background:none;border:none;cursor:pointer;color:var(--t3);display:flex;align-items:center;justify-content:center;transition:.15s}
 .ib:hover{background:var(--s2);color:var(--t2)}
 
+/* Improve touch responsiveness for icon buttons on mobile */
+.ib{touch-action:manipulation;-webkit-tap-highlight-color:transparent}
+
 /* ── MESSAGE BUBBLES ── */
 .mrow{display:flex;padding:6px 0;margin-bottom:10px;width:100%}
 .mrow.out{justify-content:flex-end;padding-right:20px}
@@ -636,6 +639,7 @@ let ctxObj = null;
 let typingTimeouts = {};
 let typingThrottle = {};
 let infoOpen = false;
+let _lastRpanelToggle = 0;
 let fwdMsg = null;
 let unsubscribeChats = null;
 let unsubscribeMessages = null;
@@ -1624,9 +1628,18 @@ function clsFwd() {
 
 // ── INFO PANEL ──
 function tglInfo() {
+  const now = Date.now();
+  if (now - (_lastRpanelToggle || 0) < 350) {
+    // ignore rapid double-invokes (touchend + click, etc.)
+    console.debug('tglInfo debounced', { since: now - (_lastRpanelToggle || 0) });
+    return;
+  }
+  _lastRpanelToggle = now;
+  const before = infoOpen;
   infoOpen = !infoOpen;
   document.getElementById('rpanel').classList.toggle('off', !infoOpen);
-  updInfo();
+  try { updInfo(); } catch (e) { console.warn('updInfo failed', e); }
+  console.debug('tglInfo toggled', { before, after: infoOpen, time: now });
 }
 
 function updInfo() {
